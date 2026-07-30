@@ -1,61 +1,46 @@
-from http.server import BaseHTTPRequestHandler
-import json
 import os
-import urllib.request
+import requests
+from flask import Flask, request
 from google import genai
+
+app = Flask(__name__)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=payload, headers={"Content-Type": "application/json"}
-    )
+    payload = {"chat_id": chat_id, "text": text}
     try:
-        urllib.request.urlopen(req)
+        requests.post(url, json=payload, timeout=5)
     except Exception as e:
-        print("Error sending message to Telegram:", e)
+        print(f"Failed to send message: {e}")
 
-class handler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        content_length = int(self.headers.get("Content-Length", 0))
-        post_data = self.rfile.read(content_length)
+@app.route("/", methods=["GET", "POST"])
+def webhook():
+    if request.method == "GET":
+        return "Bot is running!"
 
+    update = request.get_json(silent=True)
+    if not update or "message" not in update:
+        return "OK", 200
+
+    chat_id = update["message"]["chat"]["id"]
+    user_text = update["message"].get("text", "")
+
+    if user_text.strip().lower() in ["/start", "start"]:
+        send_telegram_message(chat_id, "Hello! I am your 24/7 AI bot.")
+    elif user_text:
         try:
-            update = json.loads(post_data.decode("utf-8"))
-
-            if "message" in update and "text" in update["message"]:
-                chat_id = update["message"]["chat"]["id"]
-                user_text = update["message"]["text"]
-
-                # Handle start command vs standard message
-                if user_text.strip().lower() in ["/start", "start"]:
-                    send_telegram_message(chat_id, "Hello! I am your 24/7 AI bot.")
-                else:
-                    try:
-                        client = genai.Client(api_key=GEMINI_API_KEY)
-                        response = client.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=user_text
-                        )
-                        reply_text = response.text
-                    except Exception as e:
-                        reply_text = f"Gemini Error: {str(e)}"
-
-                    send_telegram_message(chat_id, reply_text)
-
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=user_text
+            )
+            reply_text = response.text
         except Exception as e:
-            print("Handler error:", e)
+            reply_text = f"Gemini API Error: {str(e)}"
 
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"OK")
+        send_telegram_message(chat_id, reply_text)
 
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot service running.")
+    return "OK", 200
