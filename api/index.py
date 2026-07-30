@@ -14,12 +14,13 @@ def send_telegram_message(chat_id, text):
     try:
         requests.post(url, json=payload, timeout=5)
     except Exception as e:
-        print(f"Failed to send message: {e}")
+        print(f"Error sending message: {e}")
 
-@app.route("/", methods=["GET", "POST"])
-def webhook():
+@app.route("/", defaults={"path": ""}, methods=["GET", "POST"])
+@app.route("/<path:path>", methods=["GET", "POST"])
+def webhook(path):
     if request.method == "GET":
-        return "Bot is running!"
+        return "Bot is active!"
 
     update = request.get_json(silent=True)
     if not update or "message" not in update:
@@ -39,7 +40,7 @@ def webhook():
             )
             reply_text = response.text
         except Exception as e:
-            reply_text = f"Gemini API Error: {str(e)}"
+            reply_text = f"Gemini Error: {str(e)}"
 
         send_telegram_message(chat_id, reply_text)
 
