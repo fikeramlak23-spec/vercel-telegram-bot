@@ -1,14 +1,13 @@
-\import os
+import os
 from flask import Flask, request
-import google.generativeai as genai
+from google import genai
 
 app = Flask(__name__)
 
 TELEGRAM_TOKEN = (os.environ.get("TELEGRAM_TOKEN") or "").strip().strip('"').strip("'")
 GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip().strip('"').strip("'")
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 def send_telegram_message(chat_id, text):
     import requests
@@ -29,13 +28,15 @@ def webhook():
                 send_telegram_message(chat_id, "Hello! I am your 24/7 AI bot.")
                 return "OK", 200
             
-            if not GEMINI_API_KEY:
+            if not client:
                 send_telegram_message(chat_id, "Error: GEMINI_API_KEY missing.")
                 return "OK", 200
 
             try:
-                model = genai.GenerativeModel("gemini-2.0-flash")
-                response = model.generate_content(user_text)
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=user_text,
+                )
                 send_telegram_message(chat_id, response.text)
             except Exception as e:
                 send_telegram_message(chat_id, f"Gemini Error: {e}")
