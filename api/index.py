@@ -18,7 +18,7 @@ def send_telegram_message(chat_id, text):
 @app.route("/", methods=["GET", "POST"])
 def webhook():
     if request.method == "POST":
-        data = request.get_json()
+        data = request.get_json() or {}
         
         if "message" in data and "text" in data["message"]:
             chat_id = data["message"]["chat"]["id"]
@@ -44,3 +44,7 @@ def webhook():
         return "OK", 200
     
     return "Bot is running!", 200
+
+# Required for Vercel Serverless Functions
+if __name__ == "__main__":
+    app.run()
