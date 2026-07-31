@@ -32,14 +32,27 @@ def webhook():
                 send_telegram_message(chat_id, "Error: GEMINI_API_KEY is missing in environment variables.")
                 return "OK", 200
 
-            try:
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=user_text,
-                )
-                send_telegram_message(chat_id, response.text)
-            except Exception as e:
-                send_telegram_message(chat_id, f"Gemini Error: {e}")
+            # Valid model fallbacks in case one hits rate limits
+            models_to_try = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
+            response_text = None
+            last_error = None
+
+            for model_name in models_to_try:
+                try:
+                    res = client.models.generate_content(
+                        model=model_name,
+                        contents=user_text,
+                    )
+                    response_text = res.text
+                    if response_text:
+                        break
+                except Exception as e:
+                    last_error = e
+
+            if response_text:
+                send_telegram_message(chat_id, response_text)
+            else:
+                send_telegram_message(chat_id, f"Gemini Error: {last_error}")
 
         return "OK", 200
     
