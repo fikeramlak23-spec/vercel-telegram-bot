@@ -1,4 +1,5 @@
 import os
+import time
 from flask import Flask, request
 from google import genai
 
@@ -14,6 +15,27 @@ def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
     requests.post(url, json=payload)
+
+def generate_content_with_retry(user_text, retries=3, delay=5):
+    """Retries generation if a rate limit (429) occurs."""
+    models_to_try = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
+    
+    for attempt in range(retries):
+        for model_name in models_to_try:
+            try:
+                res = client.models.generate_content(
+                    model=model_name,
+                    contents=user_text,
+                )
+                if res.text:
+                    return res.text, None
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    time.sleep(delay)  # Wait out the rate-limit window
+                    continue
+                return None, e
+    return None, "Rate limit active. Please wait 30 seconds before trying again."
 
 @app.route("/", methods=["GET", "POST"])
 def webhook():
@@ -32,27 +54,12 @@ def webhook():
                 send_telegram_message(chat_id, "Error: GEMINI_API_KEY is missing in environment variables.")
                 return "OK", 200
 
-            # Valid model fallbacks in case one hits rate limits
-            models_to_try = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
-            response_text = None
-            last_error = None
-
-            for model_name in models_to_try:
-                try:
-                    res = client.models.generate_content(
-                        model=model_name,
-                        contents=user_text,
-                    )
-                    response_text = res.text
-                    if response_text:
-                        break
-                except Exception as e:
-                    last_error = e
+            response_text, error = generate_content_with_retry(user_text)
 
             if response_text:
                 send_telegram_message(chat_id, response_text)
             else:
-                send_telegram_message(chat_id, f"Gemini Error: {last_error}")
+                send_telegram_message(chat_id, f"⚠️ {error}")
 
         return "OK", 200
     
