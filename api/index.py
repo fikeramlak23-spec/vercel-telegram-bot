@@ -1,13 +1,13 @@
 import os
 from flask import Flask, request
-from google import genai
+from groq import Groq
 
 app = Flask(__name__)
 
 TELEGRAM_TOKEN = (os.environ.get("TELEGRAM_TOKEN") or "").strip().strip('"').strip("'")
-GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip().strip('"').strip("'")
+GROQ_API_KEY = (os.environ.get("GROQ_API_KEY") or "").strip().strip('"').strip("'")
 
-client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 def send_telegram_message(chat_id, text):
     import requests
@@ -25,21 +25,21 @@ def webhook():
             user_text = data["message"]["text"]
             
             if user_text.strip().lower() in ["/start", "start"]:
-                send_telegram_message(chat_id, "Hello! I am your 24/7 AI bot.")
+                send_telegram_message(chat_id, "Hello! I am your 24/7 AI bot powered by Groq.")
                 return "OK", 200
             
             if not client:
-                send_telegram_message(chat_id, "Error: GEMINI_API_KEY missing.")
+                send_telegram_message(chat_id, "Error: GROQ_API_KEY is missing in environment variables.")
                 return "OK", 200
 
             try:
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=user_text,
+                chat_completion = client.chat.completions.create(
+                    messages=[{"role": "user", "content": user_text}],
+                    model="llama-3.3-70b-versatile",
                 )
-                send_telegram_message(chat_id, response.text)
+                send_telegram_message(chat_id, chat_completion.choices[0].message.content)
             except Exception as e:
-                send_telegram_message(chat_id, f"Gemini Error: {e}")
+                send_telegram_message(chat_id, f"Groq Error: {e}")
 
         return "OK", 200
     
