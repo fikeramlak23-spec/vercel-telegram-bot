@@ -5,13 +5,8 @@ from google import genai
 
 app = Flask(__name__)
 
-# Sanitize environment variables
 TELEGRAM_TOKEN = (os.environ.get("TELEGRAM_TOKEN") or "").strip().strip('"').strip("'")
 GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip().strip('"').strip("'")
-
-# Set variable so google-genai SDK detects it automatically
-if GEMINI_API_KEY:
-    os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 
 def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -37,15 +32,19 @@ def webhook(path):
     if user_text.strip().lower() in ["/start", "start"]:
         send_telegram_message(chat_id, "Hello! I am your 24/7 AI bot.")
     elif user_text:
+        # Debugging: show key length and start/end characters
+        key_len = len(GEMINI_API_KEY)
+        key_preview = f"{GEMINI_API_KEY[:4]}...{GEMINI_API_KEY[-4:]}" if key_len > 8 else "EMPTY/TOO_SHORT"
+        
         try:
-            client = genai.Client()
+            client = genai.Client(api_key=GEMINI_API_KEY)
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=user_text
             )
             reply_text = response.text
         except Exception as e:
-            reply_text = f"Gemini Error: {str(e)}"
+            reply_text = f"Key loaded: {key_preview} (Length: {key_len})\nError: {str(e)}"
 
         send_telegram_message(chat_id, reply_text)
 
