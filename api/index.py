@@ -1,4 +1,4 @@
-import os
+\import os
 from flask import Flask, request
 import google.generativeai as genai
 
@@ -34,7 +34,7 @@ def webhook():
                 return "OK", 200
 
             try:
-                model = genai.GenerativeModel("gemini-1.5-flash")
+                model = genai.GenerativeModel("gemini-2.0-flash")
                 response = model.generate_content(user_text)
                 send_telegram_message(chat_id, response.text)
             except Exception as e:
