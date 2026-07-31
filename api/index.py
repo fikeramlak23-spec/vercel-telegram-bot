@@ -34,7 +34,7 @@ def webhook():
 
             try:
                 response = client.models.generate_content(
-                    model="gemini-1.5-flash",
+                    model="gemini-2.0-flash",
                     contents=user_text,
                 )
                 send_telegram_message(chat_id, response.text)
@@ -45,6 +45,5 @@ def webhook():
     
     return "Bot is running!", 200
 
-# Required for Vercel Serverless Functions
 if __name__ == "__main__":
     app.run()
