@@ -9,6 +9,9 @@ GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
+# List of models to try in order
+MODELS_TO_TRY = ["gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash-latest"]
+
 def send_telegram_message(chat_id, text):
     import requests
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -32,14 +35,25 @@ def webhook():
                 send_telegram_message(chat_id, "Error: GEMINI_API_KEY is missing in environment variables.")
                 return "OK", 200
 
-            try:
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash-lite",
-                    contents=user_text,
-                )
-                send_telegram_message(chat_id, response.text)
-            except Exception as e:
-                send_telegram_message(chat_id, f"Gemini Error: {e}")
+            response_text = None
+            last_error = None
+
+            # Try models sequentially until one succeeds
+            for model_name in MODELS_TO_TRY:
+                try:
+                    res = client.models.generate_content(
+                        model=model_name,
+                        contents=user_text,
+                    )
+                    response_text = res.text
+                    break
+                except Exception as e:
+                    last_error = e
+
+            if response_text:
+                send_telegram_message(chat_id, response_text)
+            else:
+                send_telegram_message(chat_id, f"Gemini Error: {last_error}")
 
         return "OK", 200
     
