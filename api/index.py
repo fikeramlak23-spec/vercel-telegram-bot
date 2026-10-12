@@ -45,7 +45,7 @@ def webhook():
             try:
                 chat_completion = client.chat.completions.create(
                     messages=[{"role": "user", "content": user_text}],
-                    model="llama-3.3-70b-specdec",  # Active Groq production model
+                    model="openai/gpt-oss-120b",  # Active Groq production model
                 )
                 send_telegram_message(chat_id, chat_completion.choices[0].message.content)
             except Exception as e:
