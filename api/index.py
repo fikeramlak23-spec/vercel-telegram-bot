@@ -7,6 +7,10 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = (os.environ.get("TELEGRAM_TOKEN") or "").strip().strip('"').strip("'")
 GROQ_API_KEY = (os.environ.get("GROQ_API_KEY") or "").strip().strip('"').strip("'")
 
+# Parse allowed Telegram IDs from Vercel env variable (comma separated)
+raw_allowed = os.environ.get("ALLOWED_USERS", "")
+ALLOWED_USER_IDS = [int(i.strip()) for i in raw_allowed.split(",") if i.strip().isdigit()]
+
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 def send_telegram_message(chat_id, text):
@@ -22,20 +26,26 @@ def webhook():
         
         if "message" in data and "text" in data["message"]:
             chat_id = data["message"]["chat"]["id"]
+            user_id = data["message"]["from"]["id"]
             user_text = data["message"]["text"]
             
+            # Access restriction check (if ALLOWED_USERS is set in Vercel)
+            if ALLOWED_USER_IDS and user_id not in ALLOWED_USER_IDS:
+                send_telegram_message(chat_id, "Access denied. AXIOM is private.")
+                return "OK", 200
+            
             if user_text.strip().lower() in ["/start", "start"]:
-                send_telegram_message(chat_id, "Hello! I am your 24/7 AI bot powered by Groq.")
+                send_telegram_message(chat_id, "Hello! AXIOM is online and ready.")
                 return "OK", 200
             
             if not client:
-                send_telegram_message(chat_id, "Error: GROQ_API_KEY is missing in environment variables.")
+                send_telegram_message(chat_id, "Error: GROQ_API_KEY missing.")
                 return "OK", 200
 
             try:
                 chat_completion = client.chat.completions.create(
                     messages=[{"role": "user", "content": user_text}],
-                    model="llama-3.3-70b-versatile",
+                    model="llama-3.1-8b-instant",  # Updated active Groq model
                 )
                 send_telegram_message(chat_id, chat_completion.choices[0].message.content)
             except Exception as e:
