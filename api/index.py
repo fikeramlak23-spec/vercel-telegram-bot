@@ -7,7 +7,7 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = (os.environ.get("TELEGRAM_TOKEN") or "").strip().strip('"').strip("'")
 GROQ_API_KEY = (os.environ.get("GROQ_API_KEY") or "").strip().strip('"').strip("'")
 
-# Parse allowed Telegram IDs from Vercel env variable (comma separated)
+# Parse allowed Telegram IDs from Vercel env variable (comma-separated)
 raw_allowed = os.environ.get("ALLOWED_USERS", "")
 ALLOWED_USER_IDS = [int(i.strip()) for i in raw_allowed.split(",") if i.strip().isdigit()]
 
@@ -29,7 +29,7 @@ def webhook():
             user_id = data["message"]["from"]["id"]
             user_text = data["message"]["text"]
             
-            # Access restriction check (if ALLOWED_USERS is set in Vercel)
+            # Whitelist security check
             if ALLOWED_USER_IDS and user_id not in ALLOWED_USER_IDS:
                 send_telegram_message(chat_id, "Access denied. AXIOM is private.")
                 return "OK", 200
@@ -45,7 +45,7 @@ def webhook():
             try:
                 chat_completion = client.chat.completions.create(
                     messages=[{"role": "user", "content": user_text}],
-                    model="llama-3.1-8b-instant",  # Updated active Groq model
+                    model="llama-3.3-70b-specdec",  # Active Groq production model
                 )
                 send_telegram_message(chat_id, chat_completion.choices[0].message.content)
             except Exception as e:
