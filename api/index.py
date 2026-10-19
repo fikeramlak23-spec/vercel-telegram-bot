@@ -5,24 +5,25 @@ from groq import Groq
 
 app = Flask(__name__)
 
+# Fetch environment variables from Vercel
 TELEGRAM_TOKEN = (os.environ.get("TELEGRAM_TOKEN") or "").strip().strip('"').strip("'")
 GROQ_API_KEY = (os.environ.get("GROQ_API_KEY") or "").strip().strip('"').strip("'")
 
+# Parse allowed Telegram IDs from ALLOWED_USERS env variable (comma-separated)
 raw_allowed = os.environ.get("ALLOWED_USERS", "")
 ALLOWED_USER_IDS = [int(i.strip()) for i in raw_allowed.split(",") if i.strip().isdigit()]
 
-client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+# Initialize Groq client with a 15-second timeout
+client = Groq(api_key=GROQ_API_KEY, timeout=15.0) if GROQ_API_KEY else None
 
+# In-memory dictionary for short-term chat context storage
 chat_histories = {}
 
 def send_telegram_message(chat_id, text):
-    """Splits messages longer than 4000 characters to prevent Telegram API errors."""
+    """Chunk and send long outputs to prevent Telegram 4000 character limit failures."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    
-    # Split long responses into chunks of 4000 characters
-    for chunk in [text[i:i + 4000] for i in range(0, len(text), 4000)]:
-        payload = {"chat_id": chat_id, "text": chunk}
-        requests.post(url, json=payload)
+    for chunk in [text[i:i + 3900] for i in range(0, len(text), 3900)]:
+        requests.post(url, json={"chat_id": chat_id, "text": chunk})
 
 @app.route("/", methods=["GET", "POST"])
 def webhook():
@@ -34,11 +35,12 @@ def webhook():
             user_id = data["message"]["from"]["id"]
             user_text = data["message"]["text"]
             
-            # Whitelist check
+            # Security Check: Whitelist verification
             if ALLOWED_USER_IDS and user_id not in ALLOWED_USER_IDS:
                 send_telegram_message(chat_id, "Access denied. AXIOM is private.")
                 return "OK", 200
             
+            # Reset history on /start command
             if user_text.strip().lower() in ["/start", "start"]:
                 chat_histories[chat_id] = []
                 send_telegram_message(chat_id, "Hello! I am AXIOM, ready to assist.")
@@ -51,10 +53,10 @@ def webhook():
             if chat_id not in chat_histories:
                 chat_histories[chat_id] = []
 
-            # Append user message
+            # Append current user prompt
             chat_histories[chat_id].append({"role": "user", "content": user_text})
             
-            # Keep history under ~3000 characters total to avoid exceeding token/timeout limits
+            # Keep context trimmed to prevent exceeding token window or timing out
             trimmed_history = []
             total_chars = 0
             for msg in reversed(chat_histories[chat_id]):
@@ -63,25 +65,23 @@ def webhook():
                 trimmed_history.insert(0, msg)
                 total_chars += len(msg["content"])
 
-            # System prompt to ensure concise responses within Vercel's execution window
             messages_payload = [
-                {"role": "system", "content": "You are AXIOM, a helpful AI assistant. Provide direct, concise responses without unnecessary fluff."}
+                {"role": "system", "content": "You are AXIOM, a helpful AI assistant. Be concise and direct."}
             ] + trimmed_history
 
             try:
+                # Active high-speed Groq model
                 chat_completion = client.chat.completions.create(
                     messages=messages_payload,
-                    model="openai/gpt-oss-120b",
-                    max_tokens=1024  # Prevents long generations from timing out
+                    model="llama-3.1-8b-instant",
+                    max_tokens=1000
                 )
                 bot_reply = chat_completion.choices[0].message.content
                 
-                # Save reply to history
                 chat_histories[chat_id].append({"role": "assistant", "content": bot_reply})
-                
                 send_telegram_message(chat_id, bot_reply)
             except Exception as e:
-                send_telegram_message(chat_id, f"Error: {e}")
+                send_telegram_message(chat_id, f"AXIOM Error: {e}")
 
         return "OK", 200
     
