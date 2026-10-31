@@ -1,7 +1,10 @@
 import os
+import io
 import requests
 from flask import Flask, request
 from groq import Groq
+import docx
+from pypdf import PdfReader
 
 app = Flask(__name__)
 
@@ -41,7 +44,7 @@ def webhook():
             if user_text.strip().lower() in ["/start", "start"]:
                 chat_histories[chat_id] = []
                 secretary_modes[chat_id] = False
-                send_telegram_message(chat_id, "Hello! I am AXIOM. Send /secretary to toggle Secretary Mode or upload a .txt file!")
+                send_telegram_message(chat_id, "Hello! I am AXIOM. Send /secretary to toggle Secretary Mode or upload a .txt, .docx, or .pdf file!")
                 return "OK", 200
             
             if user_text.strip().lower() == "/secretary":
@@ -51,19 +54,35 @@ def webhook():
                 send_telegram_message(chat_id, f"Secretary Mode is now {status}.")
                 return "OK", 200
 
+            # Handle .txt, .docx, and .pdf document uploads
             if "document" in msg:
                 doc = msg["document"]
-                if doc.get("file_name", "").endswith(".txt"):
+                file_name = doc.get("file_name", "").lower()
+                
+                if file_name.endswith((".txt", ".docx", ".pdf")):
                     file_id = doc["file_id"]
                     file_info = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}").json()
                     file_path = file_info.get("result", {}).get("file_path")
+                    
                     if file_path:
                         file_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
-                        file_content = requests.get(file_url).text
+                        res = requests.get(file_url)
+                        
+                        if file_name.endswith(".txt"):
+                            file_content = res.text
+                        elif file_name.endswith(".docx"):
+                            docx_file = io.BytesIO(res.content)
+                            document = docx.Document(docx_file)
+                            file_content = "\n".join([p.text for p in document.paragraphs if p.text])
+                        elif file_name.endswith(".pdf"):
+                            pdf_file = io.BytesIO(res.content)
+                            reader = PdfReader(pdf_file)
+                            file_content = "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
+
                         caption = msg.get("caption", "Analyze and summarize this document.")
-                        user_text = f"[Uploaded File Content]:\n{file_content}\n\n[Instruction]: {caption}"
+                        user_text = f"[Uploaded Document ({file_name}) Content]:\n{file_content}\n\n[Instruction]: {caption}"
                 else:
-                    send_telegram_message(chat_id, "Please upload a valid .txt file.")
+                    send_telegram_message(chat_id, "Please upload a valid .txt, .docx, or .pdf file.")
                     return "OK", 200
 
             if not user_text:
