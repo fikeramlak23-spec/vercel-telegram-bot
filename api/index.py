@@ -11,39 +11,65 @@ GROQ_API_KEY = (os.environ.get("GROQ_API_KEY") or "").strip().strip('"').strip("
 raw_allowed = os.environ.get("ALLOWED_USERS", "")
 ALLOWED_USER_IDS = [int(i.strip()) for i in raw_allowed.split(",") if i.strip().isdigit()]
 
-client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+client = Groq(api_key=GROQ_API_KEY, timeout=15.0) if GROQ_API_KEY else None
 
 chat_histories = {}
+secretary_modes = {}  # Tracks if secretary mode is active per chat
 
 def send_telegram_message(chat_id, text):
-    """Splits messages longer than 4000 characters to prevent Telegram API errors."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    
-    # Split long responses into chunks of 4000 characters
-    for chunk in [text[i:i + 4000] for i in range(0, len(text), 4000)]:
-        payload = {"chat_id": chat_id, "text": chunk}
-        requests.post(url, json=payload)
+    for chunk in [text[i:i + 3900] for i in range(0, len(text), 3900)]:
+        requests.post(url, json={"chat_id": chat_id, "text": chunk})
 
 @app.route("/", methods=["GET", "POST"])
 def webhook():
     if request.method == "POST":
         data = request.get_json() or {}
         
-        if "message" in data and "text" in data["message"]:
-            chat_id = data["message"]["chat"]["id"]
-            user_id = data["message"]["from"]["id"]
-            user_text = data["message"]["text"]
+        if "message" in data:
+            msg = data["message"]
+            chat_id = msg["chat"]["id"]
+            user_id = msg["from"]["id"]
             
-            # Whitelist check
             if ALLOWED_USER_IDS and user_id not in ALLOWED_USER_IDS:
                 send_telegram_message(chat_id, "Access denied. AXIOM is private.")
                 return "OK", 200
             
+            user_text = msg.get("text", "")
+            
+            # Commands
             if user_text.strip().lower() in ["/start", "start"]:
                 chat_histories[chat_id] = []
-                send_telegram_message(chat_id, "Hello! I am AXIOM, ready to assist.")
+                secretary_modes[chat_id] = False
+                send_telegram_message(chat_id, "Hello! I am AXIOM. Send /secretary to toggle Secretary Mode or upload a .txt file!")
                 return "OK", 200
-            
+                
+            if user_text.strip().lower() == "/secretary":
+                current_mode = secretary_modes.get(chat_id, False)
+                secretary_modes[chat_id] = not current_mode
+                status = "ACTIVATED 📋" if secretary_modes[chat_id] else "DEACTIVATED"
+                send_telegram_message(chat_id, f"Secretary Mode is now {status}.")
+                return "OK", 200
+
+            # Handle .txt file uploads
+            if "document" in msg:
+                doc = msg["document"]
+                if doc.get("file_name", "").endswith(".txt"):
+                    file_id = doc["file_id"]
+                    file_info = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}").json()
+                    file_path = file_info.get("result", {}).get("file_path")
+                    if file_path:
+                        file_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+                        file_content = requests.get(file_url).text
+                        caption = msg.get("caption", "Analyze and summarize this document.")
+                        user_text = f"[Uploaded File Content]:\n{file_content}\n\n[Instruction]: {caption}"
+                else:
+                    send_telegram_message(chat_id, "Please upload a valid .txt file.")
+                    return "OK", 200
+
+            if not user_text:
+                return "OK", 200
+
             if not client:
                 send_telegram_message(chat_id, "Error: GROQ_API_KEY missing.")
                 return "OK", 200
@@ -51,34 +77,26 @@ def webhook():
             if chat_id not in chat_histories:
                 chat_histories[chat_id] = []
 
-            # Append user message
             chat_histories[chat_id].append({"role": "user", "content": user_text})
             
-            # Keep history under ~3000 characters total to avoid exceeding token/timeout limits
-            trimmed_history = []
-            total_chars = 0
-            for msg in reversed(chat_histories[chat_id]):
-                if total_chars + len(msg["content"]) > 3000:
-                    break
-                trimmed_history.insert(0, msg)
-                total_chars += len(msg["content"])
+            # Determine system prompt based on mode
+            is_secretary = secretary_modes.get(chat_id, False)
+            system_prompt = (
+                "You are AXIOM's Secretary Mode. Focus on organizing tasks, summarizing text, drafting professional messages, and extracting action items clearly."
+                if is_secretary else
+                "You are AXIOM, a helpful AI assistant. Be concise and direct."
+            )
 
-            # System prompt to ensure concise responses within Vercel's execution window
-            messages_payload = [
-                {"role": "system", "content": "You are AXIOM, a helpful AI assistant. Provide direct, concise responses without unnecessary fluff."}
-            ] + trimmed_history
+            messages_payload = [{"role": "system", "content": system_prompt}] + chat_histories[chat_id][-10:]
 
             try:
                 chat_completion = client.chat.completions.create(
                     messages=messages_payload,
-                    model="openai/gpt-oss-120b",
-                    max_tokens=1024  # Prevents long generations from timing out
+                    model="llama-3.1-8b-instant",
+                    max_tokens=1000
                 )
                 bot_reply = chat_completion.choices[0].message.content
-                
-                # Save reply to history
                 chat_histories[chat_id].append({"role": "assistant", "content": bot_reply})
-                
                 send_telegram_message(chat_id, bot_reply)
             except Exception as e:
                 send_telegram_message(chat_id, f"Error: {e}")
