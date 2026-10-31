@@ -18,6 +18,7 @@ client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 chat_histories = {}
 secretary_modes = {}
+pending_files = {}  # Stores uploaded file content until you send a prompt
 
 def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -44,7 +45,8 @@ def webhook():
             if user_text.strip().lower() in ["/start", "start"]:
                 chat_histories[chat_id] = []
                 secretary_modes[chat_id] = False
-                send_telegram_message(chat_id, "Hello! I am AXIOM. Send /secretary to toggle Secretary Mode or upload a .txt, .docx, or .pdf file!")
+                pending_files[chat_id] = None
+                send_telegram_message(chat_id, "Hello! I am AXIOM. Send /secretary to toggle Secretary Mode or upload a file!")
                 return "OK", 200
             
             if user_text.strip().lower() == "/secretary":
@@ -54,7 +56,7 @@ def webhook():
                 send_telegram_message(chat_id, f"Secretary Mode is now {status}.")
                 return "OK", 200
 
-            # Handle .txt, .docx, and .pdf document uploads
+            # Handle document uploads (.txt, .docx, .pdf)
             if "document" in msg:
                 doc = msg["document"]
                 file_name = doc.get("file_name", "").lower()
@@ -79,15 +81,21 @@ def webhook():
                             reader = PdfReader(pdf_file)
                             file_content = "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
 
-                        caption = msg.get("caption", "Analyze and summarize this document.")
-                        user_text = f"[Uploaded Document ({file_name}) Content]:\n{file_content}\n\n[Instruction]: {caption}"
+                        pending_files[chat_id] = file_content
+                        send_telegram_message(chat_id, f"📄 Received '{file_name}'. What would you like me to do with it?")
                 else:
                     send_telegram_message(chat_id, "Please upload a valid .txt, .docx, or .pdf file.")
-                    return "OK", 200
+                return "OK", 200
 
             if not user_text:
                 return "OK", 200
-            
+
+            # If a file was uploaded previously, combine it with this text prompt
+            if pending_files.get(chat_id):
+                file_content = pending_files[chat_id]
+                user_text = f"[Uploaded File Content]:\n{file_content}\n\n[Instruction]: {user_text}"
+                pending_files[chat_id] = None  # Clear it after use
+
             if not client:
                 send_telegram_message(chat_id, "Error: GROQ_API_KEY missing.")
                 return "OK", 200
