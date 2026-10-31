@@ -18,7 +18,7 @@ client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 chat_histories = {}
 secretary_modes = {}
-pending_files = {}  # Stores uploaded file content until you send a prompt
+pending_files = {}
 
 def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -90,11 +90,11 @@ def webhook():
             if not user_text:
                 return "OK", 200
 
-            # If a file was uploaded previously, combine it with this text prompt
+            # If a file is pending, prepend its content to the prompt
             if pending_files.get(chat_id):
                 file_content = pending_files[chat_id]
                 user_text = f"[Uploaded File Content]:\n{file_content}\n\n[Instruction]: {user_text}"
-                pending_files[chat_id] = None  # Clear it after use
+                pending_files[chat_id] = None  # Clear only after incorporating into prompt
 
             if not client:
                 send_telegram_message(chat_id, "Error: GROQ_API_KEY missing.")
